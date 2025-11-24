@@ -11,9 +11,10 @@
 studyspot-infra/
 ├── docker/               # docker-compose.yml 및 관련 설정
 ├── nginx/                # studyspot.conf 등 Nginx 설정파일
+├── minio/                # 버킷 정책 설정 파일
 ├── monitoring/           # Grafana / Loki / Promtail 등 모니터링 구성
 ├── env-template/         # .env.template 자동 생성용 템플릿 저장
-├── script/               # 유틸리티 스크립트 (env 변환, 빌드 자동화 등)
+├── script/               # 유틸리티 스크립트 (env 변환, TODO: 빌드 자동화 등)
 ├── .gitignore
 ├── README.md
 ```
