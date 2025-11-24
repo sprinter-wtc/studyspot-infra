@@ -1,0 +1,235 @@
+services:
+  # ==========================
+  # Database (PostgreSQL)
+  # ==========================
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: studyspot_db
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - /data/pgdata:/var/lib/postgresql/data
+    networks:
+      - studyspot_net
+
+  # ==========================
+  # Backend / Frontend
+  # ==========================
+  backend:
+    image: myknow/studyspot-backend:latest
+    container_name: studyspot_backend
+    restart: always
+    depends_on:
+      - db
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"
+    networks:
+      - studyspot_net
+
+  frontend:
+    image: myknow/studyspot-frontend:latest
+    container_name: studyspot_frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    networks:
+      - studyspot_net
+
+  backend-test:
+    image: myknow/studyspot-backend:test
+    container_name: studyspot_backend_test
+    restart: always
+    depends_on:
+      - db
+    env_file:
+      - .env
+    ports:
+      - "8081:8080"
+    networks:
+      - studyspot_net
+
+  frontend-test:
+    image: myknow/studyspot-frontend:test
+    container_name: studyspot_frontend_test
+    restart: always
+    depends_on:
+      - backend-test
+    ports:
+      - "3001:80"
+    networks:
+      - studyspot_net
+
+  # ==========================
+  # pgAdmin
+  # ==========================
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: studyspot_pgadmin
+    env_file:
+      - .env
+    ports:
+      - "8085:80"
+    networks:
+      - studyspot_net
+
+  # ==========================
+  # PostgreSQL Exporter
+  # ==========================
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: monitoring_postgres_exporter
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "9187:9187"
+    depends_on:
+      - db
+    networks:
+      - studyspot_net
+
+  # ==========================
+  # Monitoring Stack
+  # ==========================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: monitoring_prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./data/prometheus/data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - studyspot_net
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: monitoring_node_exporter
+    restart: unless-stopped
+    pid: "host"                 # 호스트 프로세스 접근
+    user: "0:0"                 # root 권한으로 실행
+    command:
+      - '--path.rootfs=/host'   # 호스트 전체 FS 경로
+    volumes:
+      - /:/host:ro,rslave       # 호스트 FS 마운트, 읽기 전용
+      - /proc:/host/proc:ro     # 프로세스 정보
+      - /sys:/host/sys:ro       # 시스템 정보
+      - /etc:/host/etc:ro       # config 및 OS 정보
+    ports:
+      - "9100:9100"
+    networks:
+      - studyspot_net
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: monitoring_cadvisor
+    restart: unless-stopped
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports:
+      - "8082:8080"
+    networks:
+      - studyspot_net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: monitoring_grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    ports:
+      - "3002:3000"
+    env_file:
+      - .env
+    networks:
+      - studyspot_net
+
+  loki:
+    image: grafana/loki:2.9.2
+    container_name: monitoring_loki
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml
+      - ./loki-data:/loki
+      - ./loki-wal:/wal
+    ports:
+      - "3100:3100"
+    networks:
+      - studyspot_net
+
+  promtail:
+    image: grafana/promtail:2.9.2
+    container_name: monitoring_promtail
+    volumes:
+      - /var/log:/var/log
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./promtail-config.yaml:/etc/promtail/config.yaml
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+    networks:
+      - studyspot_net
+
+  # ==========================
+  # API Test (Hoppscotch AIO)
+  # ==========================
+  hoppscotch:
+    image: hoppscotch/hoppscotch:latest
+    container_name: hoppscotch
+    restart: unless-stopped
+    ports:
+      # AIO의 내부 포트 80과 3170(백엔드)를 외부 포트 8003으로 매핑
+      - "8003:80"  # 공식 문서에 따라 AIO는 기본 80 포트를 사용합니다. (HOPP_AIO_ALTERNATE_PORT를 사용하지 않을 경우)
+    env_file:
+      - .env
+    depends_on:
+      - db
+    networks:
+      - studyspot_net
+
+  # ==================
+  # MiniO 단일 노드
+  # ==================
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: always
+    command: server /data --console-address ":9001"
+    env_file:
+      - .env
+    volumes:
+      - ./minio_data:/data
+    ports:
+      - "9000:9000"   # S3 API 엔드포인트
+      - "9001:9001"   # 웹 콘솔
+    networks:
+      - studyspot_net
+
+  image-server:
+    image: nginx:latest
+    container_name: studyspot_image_server
+    restart: unless-stopped
+    volumes:
+      - ./images:/usr/share/nginx/html/images:rw
+    ports:
+      - "8089:80"
+    networks:
+      - studyspot_net
+
+networks:
+  studyspot_net:
+    driver: bridge
